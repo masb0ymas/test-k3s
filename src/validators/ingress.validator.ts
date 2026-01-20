@@ -19,6 +19,21 @@ const tlsSchema = z.object({
   secretName: z.string().optional(),
 });
 
+const traefikConfigSchema = z.object({
+  /** Entry points (e.g., 'web', 'websecure') */
+  entryPoints: z.array(z.string()).optional(),
+  /** Middlewares to apply (e.g., 'default-headers@kubernetescrd') */
+  middlewares: z.array(z.string()).optional(),
+  /** Let's Encrypt cert resolver name */
+  certResolver: z.string().optional(),
+  /** Router priority (higher = more priority) */
+  priority: z.number().int().optional(),
+  /** Enable sticky sessions */
+  sticky: z.boolean().optional(),
+  /** Pass host header to backend */
+  passHostHeader: z.boolean().optional(),
+});
+
 export const createIngressSchema = z.object({
   name: z
     .string()
@@ -33,6 +48,7 @@ export const createIngressSchema = z.object({
   labels: z.record(z.string()).optional(),
   annotations: z.record(z.string()).optional(),
   tls: z.array(tlsSchema).optional(),
+  traefik: traefikConfigSchema.optional(),
 });
 
 export type CreateIngressInput = z.infer<typeof createIngressSchema>;

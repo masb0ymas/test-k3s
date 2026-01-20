@@ -54,14 +54,21 @@ POST   /api/services                      # Create service
 DELETE /api/services/:namespace/:name     # Delete service
 ```
 
-### Ingresses (Domain Assignment)
+### Ingresses (Domain Assignment with Traefik)
 ```
 GET    /api/ingresses                      # List all ingresses
 GET    /api/ingresses?namespace=default    # List ingresses in namespace
 GET    /api/ingresses/:namespace/:name     # Get ingress details
-POST   /api/ingresses                      # Create ingress with domain
+POST   /api/ingresses                      # Create ingress with Traefik config
 DELETE /api/ingresses/:namespace/:name     # Delete ingress
 ```
+
+The API uses **Traefik** as the ingress controller with support for:
+- Custom entry points (web, websecure)
+- Middleware chains (headers, rate limiting, auth)
+- Automatic TLS with Let's Encrypt
+- Sticky sessions
+- Router priorities
 
 ## Examples
 
@@ -95,7 +102,7 @@ curl -X POST http://localhost:3000/api/services \
   }'
 ```
 
-### Assign Domain via Ingress
+### Assign Domain via Ingress (Basic)
 
 ```bash
 curl -X POST http://localhost:3000/api/ingresses \
@@ -117,10 +124,167 @@ curl -X POST http://localhost:3000/api/ingresses \
 
 After creating the ingress, access your app at: `http://my-nginx.test`
 
+### Ingress with Traefik Features
+
+#### HTTPS with Let's Encrypt
+
+```bash
+curl -X POST http://localhost:3000/api/ingresses \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "my-app-secure",
+    "namespace": "default",
+    "rules": [{
+      "host": "myapp.example.com",
+      "paths": [{
+        "path": "/",
+        "pathType": "Prefix",
+        "serviceName": "my-app",
+        "servicePort": 80
+      }]
+    }],
+    "traefik": {
+      "entryPoints": ["websecure"],
+      "certResolver": "letsencrypt"
+    },
+    "tls": [{
+      "hosts": ["myapp.example.com"]
+    }]
+  }'
+```
+
+#### With Middlewares (Headers, Rate Limiting, etc.)
+
+```bash
+curl -X POST http://localhost:3000/api/ingresses \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "my-app-advanced",
+    "namespace": "default",
+    "rules": [{
+      "host": "api.example.com",
+      "paths": [{
+        "path": "/",
+        "pathType": "Prefix",
+        "serviceName": "my-api",
+        "servicePort": 8080
+      }]
+    }],
+    "traefik": {
+      "entryPoints": ["websecure"],
+      "certResolver": "letsencrypt",
+      "middlewares": [
+        "default-headers@kubernetescrd",
+        "rate-limit@kubernetescrd"
+      ],
+      "priority": 100,
+      "sticky": true,
+      "passHostHeader": true
+    },
+    "tls": [{
+      "hosts": ["api.example.com"]
+    }]
+  }'
+```
+
+#### HTTP to HTTPS Redirect
+
+```bash
+curl -X POST http://localhost:3000/api/ingresses \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "my-app-redirect",
+    "namespace": "default",
+    "rules": [{
+      "host": "myapp.example.com",
+      "paths": [{
+        "path": "/",
+        "pathType": "Prefix",
+        "serviceName": "my-app",
+        "servicePort": 80
+      }]
+    }],
+    "traefik": {
+      "entryPoints": ["web", "websecure"],
+      "certResolver": "letsencrypt",
+      "middlewares": ["redirect-https@kubernetescrd"]
+    },
+    "tls": [{
+      "hosts": ["myapp.example.com"]
+    }]
+  }'
+```
+
 ## Resource Units
 
 - **CPU**: Specified in millicores (e.g., `100m` = 0.1 CPU, `1000m` = 1 CPU)
 - **Memory**: Specified in bytes (e.g., `128Mi`, `1Gi`, `512M`)
+
+## Traefik Configuration
+
+This API is designed to work with Traefik as the ingress controller. The following Traefik features are supported:
+
+### Entry Points
+- `web` - HTTP traffic (port 80)
+- `websecure` - HTTPS traffic (port 443)
+
+### Traefik Options
+
+| Option | Type | Description | Example |
+|--------|------|-------------|---------|
+| `entryPoints` | string[] | Entry points to use | `["web", "websecure"]` |
+| `middlewares` | string[] | Middleware chain to apply | `["default-headers@kubernetescrd"]` |
+| `certResolver` | string | Let's Encrypt cert resolver | `"letsencrypt"` |
+| `priority` | number | Router priority (higher = more priority) | `100` |
+| `sticky` | boolean | Enable sticky sessions | `true` |
+| `passHostHeader` | boolean | Pass host header to backend | `true` |
+
+### Common Middleware Examples
+
+Create these as Traefik Middleware CRDs in your cluster:
+
+**HTTPS Redirect:**
+```yaml
+apiVersion: traefik.containo.us/v1alpha1
+kind: Middleware
+metadata:
+  name: redirect-https
+  namespace: default
+spec:
+  redirectScheme:
+    scheme: https
+    permanent: true
+```
+
+**Security Headers:**
+```yaml
+apiVersion: traefik.containo.us/v1alpha1
+kind: Middleware
+metadata:
+  name: default-headers
+  namespace: default
+spec:
+  headers:
+    browserXssFilter: true
+    contentTypeNosniff: true
+    forceSTSHeader: true
+    stsIncludeSubdomains: true
+    stsPreload: true
+    stsSeconds: 31536000
+```
+
+**Rate Limiting:**
+```yaml
+apiVersion: traefik.containo.us/v1alpha1
+kind: Middleware
+metadata:
+  name: rate-limit
+  namespace: default
+spec:
+  rateLimit:
+    average: 100
+    burst: 50
+```
 
 ## Environment Variables
 
